@@ -1,0 +1,1 @@
+add_subdirectory_ifdef(CONFIG_HD44780 HD44780)

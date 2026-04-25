@@ -16,3 +16,5 @@ config BT_LBS_SECURITY_ENABLED
 	  "Enable BLE security for the LED-Button service"
 
 endmenu
+
+rsource "drivers/Kconfig"
