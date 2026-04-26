@@ -1,0 +1,10 @@
+# Copyright (c) 2021 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+config HD44780
+	bool "HD44780"
+	default y
+	depends on DT_HAS_ZEPHYR_HD44780
+	select GPIO
+	help
+	  Enable HD44780
