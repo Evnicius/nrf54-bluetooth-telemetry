@@ -70,6 +70,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include "HD44780.h"
 
 #if defined(CONFIG_SOC_SAM3X8E)
@@ -154,8 +155,6 @@
 #define LCD_WIDTH			16	/* Max char per line */
 #define HIGH				1
 #define LOW				0
-/* in millisecond */
-#define	ENABLE_DELAY			10
 
 
 #define GPIO_PIN_WR(dev, pin, bit)						\
@@ -212,8 +211,7 @@ const struct device *g_d5_dev;
 void _pi_lcd_toggle_enable(const struct device *gpio_dev)
 {
 	GPIO_PIN_WR(gpio_dev, GPIO_PIN_PC25_E, LOW);
-	k_msleep(ENABLE_DELAY);
-	GPIO_PIN_WR(gpio_dev, GPIO_PIN_PC25_E, HIGH);
+	k_msleep(ENABLE_DELAY);	GPIO_PIN_WR(gpio_dev, GPIO_PIN_PC25_E, HIGH);
 	k_msleep(ENABLE_DELAY);
 	GPIO_PIN_WR(gpio_dev, GPIO_PIN_PC25_E, LOW);
 	k_msleep(ENABLE_DELAY);
@@ -489,6 +487,26 @@ void pi_lcd_string(const struct device *gpio_dev, char *msg)
 		data = msg[i];
 		_pi_lcd_write(gpio_dev, data);
 	}
+}
+
+void lcd_print_row(const struct device *dev, uint8_t row, const char *fmt, ...)
+{
+    char buf[LCD_WIDTH + 1];
+    va_list args;
+
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    /* Force full row overwrite (pad with spaces) */
+    int len = strlen(buf);
+    for (int i = len; i < LCD_WIDTH; i++) {
+        buf[i] = ' ';
+    }
+    buf[LCD_WIDTH] = '\0';
+
+    pi_lcd_set_cursor(dev, 0, row);
+    pi_lcd_string(dev, buf);
 }
 
 

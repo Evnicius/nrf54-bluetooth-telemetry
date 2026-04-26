@@ -98,7 +98,7 @@ extern const struct device *g_d5_dev;
 #define HIGH				1
 #define LOW				0
 /* in millisecond */
-#define	ENABLE_DELAY			10
+#define	ENABLE_DELAY			1
 
 #define GPIO_PIN_WR(dev, pin, bit)						\
 	do {									\
@@ -154,5 +154,6 @@ void pi_lcd_auto_scroll_right(const struct device *gpio_dev);
 
 /* Write string */
 void pi_lcd_string(const struct device *gpio_dev, char *msg);
+void lcd_print_row(const struct device *dev, uint8_t row, const char *fmt, ...);
 
 #endif

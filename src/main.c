@@ -60,6 +60,9 @@ static bool 	buf_overflow = false;
 
 static bool notifications_enabled;
 
+static const struct device *lcd_gpio_dev;
+K_MSGQ_DEFINE(lcd_msgq, sizeof(telemetry_frame_t), 1, 4);
+
 #define FRAME_SIZE        sizeof(telemetry_frame_t)          /* 18 bytes        */
 #define MAX_FRAMES        512                                 /* 512 * 18 = 9KB  */
 #define WARNING_FRAMES    (MAX_FRAMES * 80 / 100)            /* reset at 80%    */
@@ -117,6 +120,11 @@ static ssize_t on_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	// for (uint16_t i = 0; i < len; i++) {
 	// 	printk("%d ", data[i]);
 	// }
+
+	 if (frame_count >= WARNING_FRAMES) {
+        buf_partial_reset();
+    }
+	
 	telemetry_frame_t *f = &buf_frame[frame_count];
     memcpy(f, buf, FRAME_SIZE);
 
@@ -132,6 +140,8 @@ static ssize_t on_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
        f->shiftlights_rpm_valid);
 	
 	frame_count++;
+	k_msgq_purge(&lcd_msgq);
+	k_msgq_put(&lcd_msgq, f, K_NO_WAIT);
 	return len;
 }
 
@@ -255,10 +265,10 @@ int main(void)
 
 
 	/* HD44780 Display */
-	const struct device *const gpio_dev = DEVICE_DT_GET(GPIO_NODE);
+	lcd_gpio_dev = DEVICE_DT_GET(GPIO_NODE);
 
-	if (!device_is_ready(gpio_dev)) {
-		printk("Device %s not ready!\n", gpio_dev->name);
+	if (!device_is_ready(lcd_gpio_dev)) {
+		printk("Device %s not ready!\n", lcd_gpio_dev->name);
 		return 0;
 	}
 
@@ -274,39 +284,54 @@ int main(void)
 	k_sleep(K_MSEC(200));
 
 	/* Configure all LCD pins as outputs, starting LOW */
-	GPIO_PIN_CFG(gpio_dev, GPIO_PIN_PC25_E,   GPIO_OUTPUT_LOW);
-	GPIO_PIN_CFG(gpio_dev, GPIO_PIN_PC28_RS,  GPIO_OUTPUT_LOW);
-	GPIO_PIN_CFG(gpio_dev, GPIO_PIN_PC24_D4,  GPIO_OUTPUT_LOW);
-	GPIO_PIN_CFG(D5_DEV,   GPIO_PIN_PC23_D5,  GPIO_OUTPUT_LOW);
-	GPIO_PIN_CFG(gpio_dev, GPIO_PIN_PC22_D6,  GPIO_OUTPUT_LOW);
-	GPIO_PIN_CFG(gpio_dev, GPIO_PIN_PC21_D7,  GPIO_OUTPUT_LOW);
+	GPIO_PIN_CFG(lcd_gpio_dev, GPIO_PIN_PC25_E,   GPIO_OUTPUT_LOW);
+	GPIO_PIN_CFG(lcd_gpio_dev, GPIO_PIN_PC28_RS,  GPIO_OUTPUT_LOW);
+	GPIO_PIN_CFG(lcd_gpio_dev, GPIO_PIN_PC24_D4,  GPIO_OUTPUT_LOW);
+	GPIO_PIN_CFG(D5_DEV,       GPIO_PIN_PC23_D5,  GPIO_OUTPUT_LOW);
+	GPIO_PIN_CFG(lcd_gpio_dev, GPIO_PIN_PC22_D6,  GPIO_OUTPUT_LOW);
+	GPIO_PIN_CFG(lcd_gpio_dev, GPIO_PIN_PC21_D7,  GPIO_OUTPUT_LOW);
 
 	printk("=== Wire tests done. Starting LCD init ===\n");
-	pi_lcd_init(gpio_dev, 16, 2, LCD_5x8_DOTS);
-	pi_lcd_clear(gpio_dev);
+	pi_lcd_init(lcd_gpio_dev, 16, 2, LCD_5x8_DOTS);
+	pi_lcd_cursor_off(lcd_gpio_dev);
+	pi_lcd_blink_off(lcd_gpio_dev);
+	pi_lcd_clear(lcd_gpio_dev);
 
-	
-
-	uint16_t counter = 0;
-	char buf[17]; /* full LCD row + null terminator */
+	/* Static labels — written once, never overwritten */
+	pi_lcd_set_cursor(lcd_gpio_dev, 0, 0); pi_lcd_string(lcd_gpio_dev, "RPM:");
+	pi_lcd_set_cursor(lcd_gpio_dev, 8, 0); pi_lcd_string(lcd_gpio_dev, "/");
+	pi_lcd_set_cursor(lcd_gpio_dev, 0, 1); pi_lcd_string(lcd_gpio_dev, "Spd:");
+	pi_lcd_set_cursor(lcd_gpio_dev, 7, 1); pi_lcd_string(lcd_gpio_dev, ".");
+	pi_lcd_set_cursor(lcd_gpio_dev, 9, 1); pi_lcd_string(lcd_gpio_dev, " G:");
 
 	while (1) {
-		/* Row 0: label */
-		pi_lcd_set_cursor(gpio_dev, 0, 0);
-		pi_lcd_string(gpio_dev, "Value:");
+		telemetry_frame_t f;
+		char tmp[5];
 
-		/* Row 1: formatted uint16_t value */
-		snprintf(buf, sizeof(buf), "%u", counter);
-		pi_lcd_set_cursor(gpio_dev, 0, 1);
-		pi_lcd_string(gpio_dev, buf);
+		if (k_msgq_get(&lcd_msgq, &f, K_MSEC(100)) != 0) {
+			continue;
+		}
 
-		printk("counter = %u\n", counter);
-		counter++;
-		k_msleep(MSEC_PER_SEC * 1U);
-	}
-	return 0;
+		/* Row 0: RPM:XXXX/XXXX */
+		snprintf(tmp, sizeof(tmp), "%4d", (int)f.vehicle_engine_rpm_current);
+		pi_lcd_set_cursor(lcd_gpio_dev, 4, 0);
+		pi_lcd_string(lcd_gpio_dev, tmp);
 
-	for (;;) {
-		k_sleep(K_FOREVER);
+		snprintf(tmp, sizeof(tmp), "%4d", (int)f.vehicle_engine_rpm_max);
+		pi_lcd_set_cursor(lcd_gpio_dev, 9, 0);
+		pi_lcd_string(lcd_gpio_dev, tmp);
+
+		/* Row 1: Spd:XXX.X G:X */
+		snprintf(tmp, sizeof(tmp), "%3d", (int)f.vehicle_transmission_speed);
+		pi_lcd_set_cursor(lcd_gpio_dev, 4, 1);
+		pi_lcd_string(lcd_gpio_dev, tmp);
+
+		snprintf(tmp, 2, "%1d", (int)(f.vehicle_transmission_speed * 10) % 10);
+		pi_lcd_set_cursor(lcd_gpio_dev, 8, 1);
+		pi_lcd_string(lcd_gpio_dev, tmp);
+
+		snprintf(tmp, 2, "%1d", f.vehicle_gear_index);
+		pi_lcd_set_cursor(lcd_gpio_dev, 12, 1);
+		pi_lcd_string(lcd_gpio_dev, tmp);
 	}
 }
