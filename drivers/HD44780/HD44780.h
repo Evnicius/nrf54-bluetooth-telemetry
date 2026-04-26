@@ -156,4 +156,6 @@ void pi_lcd_auto_scroll_right(const struct device *gpio_dev);
 void pi_lcd_string(const struct device *gpio_dev, char *msg);
 void lcd_print_row(const struct device *dev, uint8_t row, const char *fmt, ...);
 
+void lcd_print_vehspd_engspd_gear(const struct device *gpio_dev);
+
 #endif
