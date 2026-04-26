@@ -509,6 +509,15 @@ void lcd_print_row(const struct device *dev, uint8_t row, const char *fmt, ...)
     pi_lcd_string(dev, buf);
 }
 
+void lcd_print_vehspd_engspd_gear(const struct device *gpio_dev)
+{
+	pi_lcd_set_cursor(gpio_dev, 0, 0); pi_lcd_string(gpio_dev, "RPM:");
+	pi_lcd_set_cursor(gpio_dev, 8, 0); pi_lcd_string(gpio_dev, "/");
+	pi_lcd_set_cursor(gpio_dev, 0, 1); pi_lcd_string(gpio_dev, "Spd:");
+	pi_lcd_set_cursor(gpio_dev, 7, 1); pi_lcd_string(gpio_dev, ".");
+	pi_lcd_set_cursor(gpio_dev, 9, 1); pi_lcd_string(gpio_dev, " G:");
+}
+
 
 /** LCD initialization function */
 void pi_lcd_init(const struct device *gpio_dev, uint8_t cols, uint8_t rows,

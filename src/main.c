@@ -10,6 +10,8 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/hci.h>
+
 
 #include <string.h>
 #include <stdio.h>
@@ -124,7 +126,7 @@ static ssize_t on_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 	 if (frame_count >= WARNING_FRAMES) {
         buf_partial_reset();
     }
-	
+
 	telemetry_frame_t *f = &buf_frame[frame_count];
     memcpy(f, buf, FRAME_SIZE);
 
@@ -147,7 +149,7 @@ static ssize_t on_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
 BT_GATT_SERVICE_DEFINE(my_telemtery_svc, BT_GATT_PRIMARY_SERVICE(BT_UUID_TELEMETRY_128),
         BT_GATT_CHARACTERISTIC(BT_UUID_WRITE_128, BT_GATT_CHRC_WRITE | BT_GATT_CHRC_WRITE_WITHOUT_RESP, 
-			BT_GATT_PERM_WRITE, NULL, on_write, NULL),
+			BT_GATT_PERM_WRITE_AUTHEN, NULL, on_write, NULL),
         //BT_GATT_CCC(on_cccd_changed, BT_GATT_PERM_READ_ENCRYPT | BT_GATT_PERM_WRITE_ENCRYPT),
         //BT_GATT_CHARACTERISTIC(BT_UUID_RECEIVE_128, BT_GATT_PERM_WRITE, BT_GATT_PERM_NONE, NULL, NULL, NULL),
 );
@@ -179,6 +181,10 @@ static void on_connected(struct bt_conn *conn, uint8_t err)
 
 	LOG_INF("Connected\n");
 
+	err = bt_conn_set_security(conn, BT_SECURITY_L3);
+	if (err) {
+		LOG_INF("Failed to set security (err %d)\n", err);
+	}
 }
 
 static void on_disconnected(struct bt_conn *conn, uint8_t reason)
@@ -201,6 +207,8 @@ static void on_security_changed(struct bt_conn *conn, bt_security_t level, enum 
 
 	if (!err) {
 		LOG_INF("Security changed: %s level %u\n", addr, level);
+		pi_lcd_clear(lcd_gpio_dev);
+		lcd_print_vehspd_engspd_gear(lcd_gpio_dev);
 	} else {
 		LOG_INF("Security failed: %s level %u err %d\n", addr, level, err);
 	}
@@ -216,10 +224,17 @@ struct bt_conn_cb connection_callbacks = {
 static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
+	char tmp[7];
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
 	LOG_INF("Passkey for %s: %06u\n", addr, passkey);
+
+	snprintf(tmp, sizeof(tmp), "%06u", passkey);
+	pi_lcd_clear(lcd_gpio_dev);
+	pi_lcd_set_cursor(lcd_gpio_dev, 0, 0);
+	pi_lcd_string(lcd_gpio_dev, "Passkey:");
+	pi_lcd_set_cursor(lcd_gpio_dev, 0, 1);
+	pi_lcd_string(lcd_gpio_dev, tmp);
 }
 
 static void auth_cancel(struct bt_conn *conn)
@@ -296,13 +311,10 @@ int main(void)
 	pi_lcd_cursor_off(lcd_gpio_dev);
 	pi_lcd_blink_off(lcd_gpio_dev);
 	pi_lcd_clear(lcd_gpio_dev);
-
+	
+	/* TODO: needs to go to HD44780 driver */
 	/* Static labels — written once, never overwritten */
-	pi_lcd_set_cursor(lcd_gpio_dev, 0, 0); pi_lcd_string(lcd_gpio_dev, "RPM:");
-	pi_lcd_set_cursor(lcd_gpio_dev, 8, 0); pi_lcd_string(lcd_gpio_dev, "/");
-	pi_lcd_set_cursor(lcd_gpio_dev, 0, 1); pi_lcd_string(lcd_gpio_dev, "Spd:");
-	pi_lcd_set_cursor(lcd_gpio_dev, 7, 1); pi_lcd_string(lcd_gpio_dev, ".");
-	pi_lcd_set_cursor(lcd_gpio_dev, 9, 1); pi_lcd_string(lcd_gpio_dev, " G:");
+	lcd_print_vehspd_engspd_gear(lcd_gpio_dev);
 
 	while (1) {
 		telemetry_frame_t f;
@@ -311,7 +323,8 @@ int main(void)
 		if (k_msgq_get(&lcd_msgq, &f, K_MSEC(100)) != 0) {
 			continue;
 		}
-
+		
+		/* TODO: needs to go to HD44780 driver */
 		/* Row 0: RPM:XXXX/XXXX */
 		snprintf(tmp, sizeof(tmp), "%4d", (int)f.vehicle_engine_rpm_current);
 		pi_lcd_set_cursor(lcd_gpio_dev, 4, 0);
